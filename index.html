@@ -154,12 +154,21 @@
   }
 
   function bridgeHitsPlane(e){
-    const pw=plane.w*.78,ph=plane.h*.72;
-    if(!e.dead) return hit(plane.x,plane.y,pw,ph,e.x,e.y,e.w,e.h);
-    const g=bridgeSlabs(e);
-    if(g.slabW<=0) return false;
-    return hit(plane.x,plane.y,pw,ph,g.leftX,e.y,g.slabW,e.h) ||
-           hit(plane.x,plane.y,pw,ph,g.rightX,e.y,g.slabW,e.h);
+    // Bridge collision is deliberately stricter than ordinary sprite collision.
+    // If the plane overlaps the bridge vertically, its full hull must fit inside
+    // the destroyed centre opening. Touching either road edge is fatal.
+    const planeHalfW=plane.w*.50;
+    const planeHalfH=plane.h*.40;
+    const overlapsY=Math.abs(plane.y-e.y) < planeHalfH+e.h/2;
+    if(!overlapsY) return false;
+    if(!e.dead) return true;
+
+    const gapHalf=(e.gap??BRIDGE_GAP)/2;
+    const gapLeft=e.x-gapHalf;
+    const gapRight=e.x+gapHalf;
+    const planeLeft=plane.x-planeHalfW;
+    const planeRight=plane.x+planeHalfW;
+    return planeLeft<=gapLeft || planeRight>=gapRight;
   }
 
   function update(dt){
