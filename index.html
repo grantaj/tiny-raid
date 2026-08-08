@@ -27,6 +27,8 @@
   let nextShot=0,sectionCount=0;
   const plane={x:0,y:0,vx:0,bank:0,bankRate:0,w:28,h:34};
   const STEP=78;
+  const BRIDGE_GAP=82;
+  const BRIDGE_HP=3;
 
   function resize(){
     DPR=Math.min(2,devicePixelRatio||1);
@@ -38,7 +40,8 @@
   addEventListener('resize',resize);
 
   function riverLimits(){
-    return {minWidth:clamp(W*.30,150,250),maxWidth:clamp(W*.62,230,480)};
+    // Slightly more generous than the first prototype, especially on narrow screens.
+    return {minWidth:clamp(W*.33,165,270),maxWidth:clamp(W*.66,250,510)};
   }
 
   function reset(){
@@ -53,10 +56,10 @@
   function rebuildRiver(){
     const {minWidth,maxWidth}=riverLimits();
     sections=[];
-    let center=W*.5,width=clamp(W*.48,minWidth,maxWidth);
+    let center=W*.5,width=clamp(W*.50,minWidth,maxWidth);
     for(let y=-STEP*3;y<H+STEP*3;y+=STEP){
-      center=clamp(center+rand(-34,34),width*.52,W-width*.52);
-      width=clamp(width+rand(-24,24),minWidth,maxWidth);
+      center=clamp(center+rand(-29,29),width*.52,W-width*.52);
+      width=clamp(width+rand(-20,20),minWidth,maxWidth);
       sections.push({y,center,width});
     }
     if(plane.x===0) plane.x=W*.5;
@@ -78,27 +81,28 @@
 
   function makeSection(){
     const top=sections[0],{minWidth,maxWidth}=riverLimits();
-    let width=clamp(top.width+rand(-28,28),minWidth,maxWidth);
-    let center=clamp(top.center+rand(-42,42),width*.52,W-width*.52);
-    if(Math.random()<.12) width=clamp(width-rand(30,70),minWidth,maxWidth);
+    let width=clamp(top.width+rand(-24,24),minWidth,maxWidth);
+    let center=clamp(top.center+rand(-35,35),width*.52,W-width*.52);
+    if(Math.random()<.08) width=clamp(width-rand(20,48),minWidth,maxWidth);
     const s={y:top.y-STEP,center,width};
     sections.unshift(s);sectionCount++;spawnForSection(s);
   }
 
   function spawnForSection(s){
-    if(sectionCount<4) return;
+    if(sectionCount<5) return;
     const r=Math.random();
-    if(sectionCount%12===0){
-      enemies.push({kind:'bridge',x:s.center,y:s.y,w:s.width,h:13,hp:4,dead:false});
+    if(sectionCount%14===0){
+      enemies.push({kind:'bridge',x:s.center,y:s.y,w:s.width,h:13,gap:Math.min(BRIDGE_GAP,s.width*.55),hp:BRIDGE_HP,dead:false});
       return;
     }
-    if(r<.24){
+    // Slightly less busy than the first pass: more space between threats.
+    if(r<.20){
       const margin=26;
       enemies.push({kind:'boat',x:rand(s.center-s.width/2+margin,s.center+s.width/2-margin),y:s.y,w:22,h:34,phase:rand(0,6.28)});
-    }else if(r<.34){
+    }else if(r<.28){
       const side=Math.random()<.5?-1:1;
-      enemies.push({kind:'gun',x:s.center+side*(s.width/2+17),y:s.y,w:20,h:20,cool:rand(.2,1.4)});
-    }else if(r<.43){
+      enemies.push({kind:'gun',x:s.center+side*(s.width/2+17),y:s.y,w:20,h:20,cool:rand(.5,1.6)});
+    }else if(r<.39){
       enemies.push({kind:'fuel',x:rand(s.center-s.width*.28,s.center+s.width*.28),y:s.y,w:24,h:42});
     }
   }
@@ -138,6 +142,26 @@
     return Math.abs(ax-bx)*2<aw+bw&&Math.abs(ay-by)*2<ah+bh;
   }
 
+  function bridgeSlabs(e){
+    const gap=e.gap??BRIDGE_GAP;
+    const slabW=Math.max(0,(e.w-gap)/2);
+    return {
+      gap,
+      slabW,
+      leftX:e.x-gap/2-slabW/2,
+      rightX:e.x+gap/2+slabW/2
+    };
+  }
+
+  function bridgeHitsPlane(e){
+    const pw=plane.w*.78,ph=plane.h*.72;
+    if(!e.dead) return hit(plane.x,plane.y,pw,ph,e.x,e.y,e.w,e.h);
+    const g=bridgeSlabs(e);
+    if(g.slabW<=0) return false;
+    return hit(plane.x,plane.y,pw,ph,g.leftX,e.y,g.slabW,e.h) ||
+           hit(plane.x,plane.y,pw,ph,g.rightX,e.y,g.slabW,e.h);
+  }
+
   function update(dt){
     dt=Math.min(dt,.033);
     particles.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=Math.pow(.45,dt);p.vy*=Math.pow(.45,dt);p.life-=dt;});
@@ -147,9 +171,7 @@
     t+=dt;
 
     // Held -> bank right; released -> bank left.
-    // Bank now responds directly and quickly instead of passing through a slow
-    // roll-rate integrator. Lateral velocity also follows the bank target rather
-    // than accumulating indefinitely, so reversals feel immediate but still smooth.
+    // Keep this feel: quick bank response plus a small amount of lateral smoothing.
     const target=hold?1:-1;
     const oldBank=plane.bank;
     plane.bank+=(target-plane.bank)*(1-Math.exp(-11*dt));
@@ -161,14 +183,13 @@
     plane.vx=clamp(plane.vx,-215,215);
     plane.x+=plane.vx*dt;
 
-    // Banking slows you; rapid reversals add a smaller extra penalty.
     const rollDrag=clamp(Math.abs(plane.bankRate)/12,0,1);
     const drag=clamp(Math.abs(plane.bank)*.57+rollDrag*.18,0,1);
     const targetSpeed=lerp(345,165,drag);
     speed+=(targetSpeed-speed)*Math.min(1,dt*1.7);
     distance+=speed*dt;score+=speed*dt*.045;
 
-    fuel-=dt*(1.65+speed/260);
+    fuel-=dt*(1.52+speed/275);
     if(fuel<=0){fuel=0;crash();return;}
 
     const dy=speed*dt;
@@ -188,11 +209,11 @@
 
     for(const e of enemies){
       if(e.kind==='gun'||e.kind==='boat'){
-        e.cool=(e.cool??rand(.4,1.4))-dt;
-        if(e.y>-60&&e.y<plane.y-90&&e.cool<=0){
+        e.cool=(e.cool??rand(.6,1.6))-dt;
+        if(e.y>-60&&e.y<plane.y-100&&e.cool<=0){
           const dx=plane.x-e.x,dy2=plane.y-e.y,len=Math.hypot(dx,dy2)||1;
-          enemyBullets.push({x:e.x,y:e.y,vx:dx/len*60,vy:95});
-          e.cool=rand(1.0,1.8);
+          enemyBullets.push({x:e.x,y:e.y,vx:dx/len*52,vy:88});
+          e.cool=rand(1.25,2.05);
         }
       }
       if(e.kind==='boat')e.x+=Math.sin(t*1.5+e.phase)*8*dt;
@@ -205,7 +226,10 @@
         const e=enemies[ei];
         if(e.kind==='fuel')continue;
         if(e.kind==='bridge'){
-          if(!e.dead&&Math.abs(b.y-e.y)<8&&Math.abs(b.x-e.x)<25){
+          // Shots only damage the highlighted centre span; destroying it creates
+          // the exact same opening used by drawing and collision.
+          const gap=e.gap??BRIDGE_GAP;
+          if(!e.dead&&Math.abs(b.y-e.y)<9&&Math.abs(b.x-e.x)<gap/2){
             bullets.splice(bi,1);used=true;e.hp--;
             if(e.hp<=0){e.dead=true;score+=140;explode(e.x,e.y,24);}
             break;
@@ -222,17 +246,17 @@
       const e=enemies[i];
       if(e.kind==='fuel'){
         if(hit(plane.x,plane.y,plane.w*.72,plane.h*.72,e.x,e.y,e.w,e.h)){
-          fuel=clamp(fuel+38,0,100);score+=70;explode(e.x,e.y,8);enemies.splice(i,1);
+          fuel=clamp(fuel+42,0,100);score+=70;explode(e.x,e.y,8);enemies.splice(i,1);
         }
       }else if(e.kind==='bridge'){
-        if(!e.dead&&Math.abs(plane.y-e.y)<(plane.h+e.h)*.5){crash();return;}
+        if(bridgeHitsPlane(e)){crash();return;}
       }else if(hit(plane.x,plane.y,plane.w*.72,plane.h*.72,e.x,e.y,e.w,e.h)){
         crash();return;
       }
     }
 
     for(const b of enemyBullets){
-      if(hit(plane.x,plane.y,plane.w*.58,plane.h*.58,b.x,b.y,5,7)){crash();return;}
+      if(hit(plane.x,plane.y,plane.w*.54,plane.h*.54,b.x,b.y,5,7)){crash();return;}
     }
 
     bullets=bullets.filter(b=>b.y>-40&&b.y<H+40);
@@ -274,13 +298,18 @@
       ctx.fillStyle='#332d09';ctx.font='bold 10px monospace';ctx.textAlign='center';ctx.fillText('FUEL',e.x,e.y+3);return;
     }
     if(e.kind==='bridge'){
+      const g=bridgeSlabs(e);
       if(e.dead){
-        ctx.fillStyle='#6f5739';const gap=36;
-        ctx.fillRect(e.x-e.w/2,e.y-e.h/2,(e.w-gap)/2,e.h);
-        ctx.fillRect(e.x+gap/2,e.y-e.h/2,(e.w-gap)/2,e.h);
+        // What you see is what you can hit: only these two slabs remain collidable.
+        ctx.fillStyle='#6f5739';
+        ctx.fillRect(e.x-e.w/2,e.y-e.h/2,g.slabW,e.h);
+        ctx.fillRect(e.x+g.gap/2,e.y-e.h/2,g.slabW,e.h);
+        ctx.strokeStyle='#b99867';ctx.lineWidth=2;
+        ctx.beginPath();ctx.moveTo(e.x-g.gap/2,e.y-e.h/2);ctx.lineTo(e.x-g.gap/2,e.y+e.h/2);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(e.x+g.gap/2,e.y-e.h/2);ctx.lineTo(e.x+g.gap/2,e.y+e.h/2);ctx.stroke();
       }else{
         ctx.fillStyle='#8b7654';ctx.fillRect(e.x-e.w/2,e.y-e.h/2,e.w,e.h);
-        ctx.fillStyle='#e8b954';ctx.fillRect(e.x-24,e.y-e.h/2,48,e.h);
+        ctx.fillStyle='#e8b954';ctx.fillRect(e.x-g.gap/2,e.y-e.h/2,g.gap,e.h);
       }
       return;
     }
