@@ -308,13 +308,19 @@
       ctx.stroke();
     }
 
+    // Water streak positions are tied to actual distance travelled, not t*speed.
+    // That makes acceleration/deceleration continuous rather than teleporting the
+    // decorative pattern. Keep a fixed set of marks so none pop in or out; speed
+    // only changes their length and opacity smoothly.
     const speedNorm=clamp((speed-MIN_SPEED)/(MAX_SPEED-MIN_SPEED),0,1);
-    ctx.strokeStyle='rgba(150,205,235,.28)';ctx.lineWidth=1;
-    const streaks=12+Math.floor(speedNorm*16);
-    for(let i=0;i<streaks;i++){
-      const y=((i*71+t*speed*.9)%(H+120))-60;
+    const streakCount=26;
+    const streakLength=16+speedNorm*42;
+    ctx.strokeStyle=`rgba(150,205,235,${.16+speedNorm*.18})`;
+    ctx.lineWidth=1;
+    for(let i=0;i<streakCount;i++){
+      const y=((i*71+distance*.90)%(H+120))-60;
       const r=riverAt(y),x=r.left+r.width*((i*37)%100)/100;
-      ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x,y+14+speed*.10);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x,y+streakLength);ctx.stroke();
     }
   }
 
@@ -352,7 +358,7 @@
     ctx.save();ctx.translate(plane.x,plane.y);
     ctx.scale(1-Math.abs(plane.bank)*.42,1);
     ctx.fillStyle='#edf4e9';ctx.beginPath();
-    ctx.moveTo(0,-18);ctx.lineTo(5,-4);ctx.lineTo(18,4);ctx.lineTo(5,7);ctx.lineTo(4,17);ctx.lineTo(-4,17);ctx.lineTo(-5,7);ctx.lineTo(-18,4);ctx.closePath();ctx.fill();
+    ctx.moveTo(0,-18);ctx.lineTo(5,-4);ctx.lineTo(18,4);ctx.lineTo(5,7);ctx.lineTo(4,17);ctx.lineTo(-4,17);ctx.lineTo(-5,7);ctx.lineTo(-18,4);ctx.lineTo(-5,-4);ctx.closePath();ctx.fill();
     ctx.fillStyle='#59c6dd';ctx.fillRect(-3,-9,6,9);
     const speedNorm=clamp((speed-MIN_SPEED)/(MAX_SPEED-MIN_SPEED),0,1);
     ctx.fillStyle='#f7a34b';ctx.fillRect(-2,17,4,5+speedNorm*12);
