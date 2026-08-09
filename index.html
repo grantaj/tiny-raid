@@ -25,7 +25,8 @@
   let score=0,best=+(localStorage.tinyRaidBest||0),fuel=100;
   let speed=235,t=0,distance=0,shake=0;
   let sections=[],enemies=[],bullets=[],enemyBullets=[],particles=[];
-  let nextShot=0,sectionCount=0,nextJet=0;
+  let nextShot=0,sectionCount=0,nextJet=0,fuelSections=0;
+  let refuelling=false;
   const plane={x:0,y:0,vx:0,bank:0,bankRate:0,w:28,h:34};
   const STEP=78;
   const BRIDGE_GAP=82;
@@ -33,6 +34,7 @@
   const START_HOLD=.75;
   const MIN_SPEED=125;
   const MAX_SPEED=420;
+  const FUEL_RATE=78;
 
   function resize(){
     DPR=Math.min(2,devicePixelRatio||1);
@@ -49,9 +51,10 @@
 
   function reset(){
     hold=false;started=false;gameOver=false;startCharging=false;startCharge=0;
-    score=0;fuel=100;speed=235;t=0;distance=0;shake=0;
+    score=0;fuel=100;speed=235;t=0;distance=0;shake=0;refuelling=false;
     enemies=[];bullets=[];enemyBullets=[];particles=[];
     nextShot=.1;sectionCount=0;nextJet=rand(4.5,8.0);
+    fuelSections=Math.floor(rand(16,22));
     plane.x=W*.5;plane.y=H*.76;plane.vx=0;plane.bank=0;plane.bankRate=0;
     rebuildRiver();
   }
@@ -64,10 +67,6 @@
     for(let y=-STEP*3;y<H+STEP*3;y+=STEP){
       const randomCenter=clamp(center+rand(-29,29),width*.52,W-width*.52);
       const randomWidth=clamp(width+rand(-20,20),minWidth,maxWidth);
-
-      // The opening stretch is deliberately safe. This matters most on phones,
-      // where the same plane consumes a much larger fraction of the river width.
-      // Blend back into normal procedural wandering a few sections above the plane.
       const safe=clamp(1-Math.abs(y-plane.y)/(STEP*4.2),0,1);
       center=lerp(randomCenter,W*.5,safe*.94);
       width=lerp(randomWidth,safeWidth,safe);
@@ -101,19 +100,28 @@
 
   function spawnForSection(s){
     if(sectionCount<5) return;
-    const r=Math.random();
+
     if(sectionCount%14===0){
       enemies.push({kind:'bridge',x:s.center,y:s.y,w:s.width,h:13,gap:Math.min(BRIDGE_GAP,s.width*.55),hp:BRIDGE_HP,dead:false});
       return;
     }
+
+    // Fuel is scheduled by distance, rather than appearing as a generous random
+    // pickup. Each depot is an event the player should plan for.
+    fuelSections--;
+    if(fuelSections<=0){
+      enemies.push({kind:'fuel',x:rand(s.center-s.width*.24,s.center+s.width*.24),y:s.y,w:34,h:72});
+      fuelSections=Math.floor(rand(18,27));
+      return;
+    }
+
+    const r=Math.random();
     if(r<.20){
       const margin=26;
       enemies.push({kind:'boat',x:rand(s.center-s.width/2+margin,s.center+s.width/2-margin),y:s.y,w:22,h:34,phase:rand(0,6.28)});
     }else if(r<.28){
       const side=Math.random()<.5?-1:1;
       enemies.push({kind:'gun',x:s.center+side*(s.width/2+17),y:s.y,w:20,h:20,cool:rand(.5,1.6)});
-    }else if(r<.39){
-      enemies.push({kind:'fuel',x:rand(s.center-s.width*.28,s.center+s.width*.28),y:s.y,w:24,h:42});
     }
   }
 
@@ -127,7 +135,7 @@
 
   function crash(){
     if(gameOver)return;
-    gameOver=true;hold=false;startCharging=false;startCharge=0;
+    gameOver=true;hold=false;startCharging=false;startCharge=0;refuelling=false;
     explode(plane.x,plane.y,34);
     best=Math.max(best,Math.floor(score));localStorage.tinyRaidBest=best;
   }
@@ -218,7 +226,9 @@
     speed+=(targetSpeed-speed)*(1-Math.exp(-response*dt));
     distance+=speed*dt;score+=speed*dt*.045;
 
-    fuel-=dt*(1.52+speed/275);
+    // A full tank now lasts only around 23-28 seconds. Fuel use is mostly time-based,
+    // so you cannot solve the resource problem simply by crawling everywhere.
+    fuel-=dt*(3.2+speed/350);
     if(fuel<=0){fuel=0;crash();return;}
 
     const dy=speed*dt;
@@ -263,9 +273,6 @@
         if(e.kind==='fuel')continue;
         if(e.kind==='bridge'){
           const gap=e.gap??BRIDGE_GAP;
-          // A bridge cannot take damage until the whole road strip is on screen.
-          // This prevents the automatic gun from destroying it before the player
-          // has had a chance to see and react to it.
           const visible=e.y-e.h/2>=0 && e.y+e.h/2<=H;
           if(visible&&!e.dead&&Math.abs(b.y-e.y)<9&&Math.abs(b.x-e.x)<gap/2){
             bullets.splice(bi,1);used=true;e.hp--;
@@ -280,11 +287,15 @@
       if(used)continue;
     }
 
+    // Refuelling is continuous, not an instant pickup. A slow, well-aligned pass
+    // can restore a large amount; blasting through at high speed gets much less.
+    refuelling=false;
     for(let i=enemies.length-1;i>=0;i--){
       const e=enemies[i];
       if(e.kind==='fuel'){
-        if(hit(plane.x,plane.y,plane.w*.72,plane.h*.72,e.x,e.y,e.w,e.h)){
-          fuel=clamp(fuel+42,0,100);score+=70;explode(e.x,e.y,8);enemies.splice(i,1);
+        if(hit(plane.x,plane.y,plane.w*.62,plane.h*.72,e.x,e.y,e.w,e.h)){
+          refuelling=true;
+          fuel=clamp(fuel+FUEL_RATE*dt,0,100);
         }
       }else if(e.kind==='bridge'){
         if(bridgeHitsPlane(e)){crash();return;}
@@ -337,6 +348,8 @@
   function drawEnemy(e){
     if(e.kind==='fuel'){
       ctx.fillStyle='#f4d447';ctx.fillRect(e.x-e.w/2,e.y-e.h/2,e.w,e.h);
+      ctx.fillStyle='#332d09';
+      for(let y=e.y-e.h/2+8;y<e.y+e.h/2-5;y+=12)ctx.fillRect(e.x-e.w/2+5,y,e.w-10,3);
       ctx.fillStyle='#332d09';ctx.font='bold 10px monospace';ctx.textAlign='center';ctx.fillText('FUEL',e.x,e.y+3);return;
     }
     if(e.kind==='bridge'){
@@ -378,7 +391,7 @@
     ctx.moveTo(0,-18);ctx.lineTo(5,-4);ctx.lineTo(18,4);ctx.lineTo(5,7);ctx.lineTo(4,17);ctx.lineTo(-4,17);ctx.lineTo(-5,7);ctx.lineTo(-18,4);ctx.lineTo(-5,-4);ctx.closePath();ctx.fill();
     ctx.fillStyle='#59c6dd';ctx.fillRect(-3,-9,6,9);
     const speedNorm=clamp((speed-MIN_SPEED)/(MAX_SPEED-MIN_SPEED),0,1);
-    ctx.fillStyle='#f7a34b';ctx.fillRect(-2,17,4,5+speedNorm*12);
+    ctx.fillStyle=refuelling?'#f4d447':'#f7a34b';ctx.fillRect(-2,17,4,5+speedNorm*12);
     ctx.restore();
   }
 
@@ -410,8 +423,10 @@
     ctx.fillStyle='#fff';ctx.fillText(String(Math.round(speed)),151,65);
 
     const fw=Math.min(140,W*.28),fx=W-fw-15;
-    ctx.fillText('FUEL',fx,25);ctx.strokeStyle='#fff';ctx.strokeRect(fx,34,fw,10);
-    ctx.fillStyle=fuel<25?'#ff665e':'#f0d64d';ctx.fillRect(fx+2,36,(fw-4)*fuel/100,6);
+    ctx.fillText(refuelling?'FUEL +':'FUEL',fx,25);ctx.strokeStyle='#fff';ctx.strokeRect(fx,34,fw,10);
+    const low=fuel<25;
+    ctx.fillStyle=low&&Math.floor(t*6)%2===0?'#fff':(low?'#ff665e':'#f0d64d');
+    ctx.fillRect(fx+2,36,(fw-4)*fuel/100,6);
 
     if(!started&&!gameOver){
       ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='bold 27px monospace';ctx.fillText('TINY RAID',W/2,H*.34);
