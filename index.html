@@ -26,7 +26,6 @@
   let speed=235,t=0,distance=0,shake=0;
   let sections=[],enemies=[],bullets=[],enemyBullets=[],particles=[];
   let nextShot=0,sectionCount=0,nextJet=0,fuelSections=0;
-  let refuelling=false;
   const plane={x:0,y:0,vx:0,bank:0,bankRate:0,w:28,h:34};
   const STEP=78;
   const BRIDGE_GAP=82;
@@ -34,7 +33,7 @@
   const START_HOLD=.75;
   const MIN_SPEED=125;
   const MAX_SPEED=420;
-  const FUEL_RATE=78;
+  const FUEL_REFILL=40;
 
   function resize(){
     DPR=Math.min(2,devicePixelRatio||1);
@@ -51,10 +50,10 @@
 
   function reset(){
     hold=false;started=false;gameOver=false;startCharging=false;startCharge=0;
-    score=0;fuel=100;speed=235;t=0;distance=0;shake=0;refuelling=false;
+    score=0;fuel=100;speed=235;t=0;distance=0;shake=0;
     enemies=[];bullets=[];enemyBullets=[];particles=[];
     nextShot=.1;sectionCount=0;nextJet=rand(4.5,8.0);
-    fuelSections=Math.floor(rand(16,22));
+    fuelSections=Math.floor(rand(27,35));
     plane.x=W*.5;plane.y=H*.76;plane.vx=0;plane.bank=0;plane.bankRate=0;
     rebuildRiver();
   }
@@ -106,12 +105,13 @@
       return;
     }
 
-    // Fuel is scheduled by distance, rather than appearing as a generous random
-    // pickup. Each depot is an event the player should plan for.
+    // Fuel depots are deliberately rare. They give a fixed refill; speed has no
+    // effect on how much fuel you get. The resource tension is simply making it
+    // from one depot to the next without missing one.
     fuelSections--;
     if(fuelSections<=0){
       enemies.push({kind:'fuel',x:rand(s.center-s.width*.24,s.center+s.width*.24),y:s.y,w:34,h:72});
-      fuelSections=Math.floor(rand(18,27));
+      fuelSections=Math.floor(rand(36,49));
       return;
     }
 
@@ -135,7 +135,7 @@
 
   function crash(){
     if(gameOver)return;
-    gameOver=true;hold=false;startCharging=false;startCharge=0;refuelling=false;
+    gameOver=true;hold=false;startCharging=false;startCharge=0;
     explode(plane.x,plane.y,34);
     best=Math.max(best,Math.floor(score));localStorage.tinyRaidBest=best;
   }
@@ -226,9 +226,8 @@
     speed+=(targetSpeed-speed)*(1-Math.exp(-response*dt));
     distance+=speed*dt;score+=speed*dt*.045;
 
-    // A full tank now lasts only around 23-28 seconds. Fuel use is mostly time-based,
-    // so you cannot solve the resource problem simply by crawling everywhere.
-    fuel-=dt*(3.2+speed/350);
+    // Fuel is intentionally independent of speed. Scarcity comes from depot spacing.
+    fuel-=dt*3.6;
     if(fuel<=0){fuel=0;crash();return;}
 
     const dy=speed*dt;
@@ -287,15 +286,12 @@
       if(used)continue;
     }
 
-    // Refuelling is continuous, not an instant pickup. A slow, well-aligned pass
-    // can restore a large amount; blasting through at high speed gets much less.
-    refuelling=false;
     for(let i=enemies.length-1;i>=0;i--){
       const e=enemies[i];
       if(e.kind==='fuel'){
         if(hit(plane.x,plane.y,plane.w*.62,plane.h*.72,e.x,e.y,e.w,e.h)){
-          refuelling=true;
-          fuel=clamp(fuel+FUEL_RATE*dt,0,100);
+          fuel=clamp(fuel+FUEL_REFILL,0,100);
+          score+=70;explode(e.x,e.y,8);enemies.splice(i,1);
         }
       }else if(e.kind==='bridge'){
         if(bridgeHitsPlane(e)){crash();return;}
@@ -391,7 +387,7 @@
     ctx.moveTo(0,-18);ctx.lineTo(5,-4);ctx.lineTo(18,4);ctx.lineTo(5,7);ctx.lineTo(4,17);ctx.lineTo(-4,17);ctx.lineTo(-5,7);ctx.lineTo(-18,4);ctx.lineTo(-5,-4);ctx.closePath();ctx.fill();
     ctx.fillStyle='#59c6dd';ctx.fillRect(-3,-9,6,9);
     const speedNorm=clamp((speed-MIN_SPEED)/(MAX_SPEED-MIN_SPEED),0,1);
-    ctx.fillStyle=refuelling?'#f4d447':'#f7a34b';ctx.fillRect(-2,17,4,5+speedNorm*12);
+    ctx.fillStyle='#f7a34b';ctx.fillRect(-2,17,4,5+speedNorm*12);
     ctx.restore();
   }
 
@@ -423,7 +419,7 @@
     ctx.fillStyle='#fff';ctx.fillText(String(Math.round(speed)),151,65);
 
     const fw=Math.min(140,W*.28),fx=W-fw-15;
-    ctx.fillText(refuelling?'FUEL +':'FUEL',fx,25);ctx.strokeStyle='#fff';ctx.strokeRect(fx,34,fw,10);
+    ctx.fillText('FUEL',fx,25);ctx.strokeStyle='#fff';ctx.strokeRect(fx,34,fw,10);
     const low=fuel<25;
     ctx.fillStyle=low&&Math.floor(t*6)%2===0?'#fff':(low?'#ff665e':'#f0d64d');
     ctx.fillRect(fx+2,36,(fw-4)*fuel/100,6);
