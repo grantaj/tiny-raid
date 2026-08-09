@@ -21,6 +21,7 @@
   const rand=(a,b)=>a+Math.random()*(b-a);
 
   let hold=false,started=false,gameOver=false;
+  let startCharging=false,startCharge=0;
   let score=0,best=+(localStorage.tinyRaidBest||0),fuel=100;
   let speed=235,t=0,distance=0,shake=0;
   let sections=[],enemies=[],bullets=[],enemyBullets=[],particles=[];
@@ -29,6 +30,9 @@
   const STEP=78;
   const BRIDGE_GAP=82;
   const BRIDGE_HP=3;
+  const START_HOLD=.75;
+  const MIN_SPEED=125;
+  const MAX_SPEED=420;
 
   function resize(){
     DPR=Math.min(2,devicePixelRatio||1);
@@ -40,12 +44,11 @@
   addEventListener('resize',resize);
 
   function riverLimits(){
-    // Slightly more generous than the first prototype, especially on narrow screens.
     return {minWidth:clamp(W*.33,165,270),maxWidth:clamp(W*.66,250,510)};
   }
 
   function reset(){
-    hold=false;started=false;gameOver=false;
+    hold=false;started=false;gameOver=false;startCharging=false;startCharge=0;
     score=0;fuel=100;speed=235;t=0;distance=0;shake=0;
     enemies=[];bullets=[];enemyBullets=[];particles=[];
     nextShot=.1;sectionCount=0;
@@ -95,7 +98,6 @@
       enemies.push({kind:'bridge',x:s.center,y:s.y,w:s.width,h:13,gap:Math.min(BRIDGE_GAP,s.width*.55),hp:BRIDGE_HP,dead:false});
       return;
     }
-    // Slightly less busy than the first pass: more space between threats.
     if(r<.20){
       const margin=26;
       enemies.push({kind:'boat',x:rand(s.center-s.width/2+margin,s.center+s.width/2-margin),y:s.y,w:22,h:34,phase:rand(0,6.28)});
@@ -117,15 +119,29 @@
 
   function crash(){
     if(gameOver)return;
-    gameOver=true;hold=false;explode(plane.x,plane.y,34);
+    gameOver=true;hold=false;startCharging=false;startCharge=0;
+    explode(plane.x,plane.y,34);
     best=Math.max(best,Math.floor(score));localStorage.tinyRaidBest=best;
   }
 
-  function press(){
-    if(gameOver){reset();hold=true;started=true;return;}
-    hold=true;started=true;
+  function launch(){
+    if(gameOver) reset();
+    started=true;gameOver=false;hold=false;startCharging=false;startCharge=0;
   }
-  function release(){hold=false;}
+
+  function press(){
+    if(!started||gameOver){
+      startCharging=true;startCharge=0;hold=false;return;
+    }
+    hold=true;
+  }
+  function release(){
+    if(!started||gameOver){
+      if(startCharging&&startCharge>=1) launch();
+      startCharging=false;startCharge=0;hold=false;return;
+    }
+    hold=false;
+  }
 
   addEventListener('keydown',e=>{
     if(['Space','ArrowUp','KeyW'].includes(e.code)){e.preventDefault();if(!e.repeat)press();}
@@ -136,7 +152,10 @@
   canvas.addEventListener('pointerdown',e=>{e.preventDefault();press();});
   addEventListener('pointerup',release);
   addEventListener('pointercancel',release);
-  addEventListener('blur',release);
+  addEventListener('blur',()=>{
+    if(!started||gameOver){startCharging=false;startCharge=0;}
+    else hold=false;
+  });
 
   function hit(ax,ay,aw,ah,bx,by,bw,bh){
     return Math.abs(ax-bx)*2<aw+bw&&Math.abs(ay-by)*2<ah+bh;
@@ -145,30 +164,19 @@
   function bridgeSlabs(e){
     const gap=e.gap??BRIDGE_GAP;
     const slabW=Math.max(0,(e.w-gap)/2);
-    return {
-      gap,
-      slabW,
-      leftX:e.x-gap/2-slabW/2,
-      rightX:e.x+gap/2+slabW/2
-    };
+    return {gap,slabW,leftX:e.x-gap/2-slabW/2,rightX:e.x+gap/2+slabW/2};
   }
 
   function bridgeHitsPlane(e){
-    // Bridge collision is deliberately stricter than ordinary sprite collision.
-    // If the plane overlaps the bridge vertically, its full hull must fit inside
-    // the destroyed centre opening. Touching either road edge is fatal.
     const planeHalfW=plane.w*.50;
     const planeHalfH=plane.h*.40;
-    const overlapsY=Math.abs(plane.y-e.y) < planeHalfH+e.h/2;
-    if(!overlapsY) return false;
-    if(!e.dead) return true;
-
+    const overlapsY=Math.abs(plane.y-e.y)<planeHalfH+e.h/2;
+    if(!overlapsY)return false;
+    if(!e.dead)return true;
     const gapHalf=(e.gap??BRIDGE_GAP)/2;
-    const gapLeft=e.x-gapHalf;
-    const gapRight=e.x+gapHalf;
-    const planeLeft=plane.x-planeHalfW;
-    const planeRight=plane.x+planeHalfW;
-    return planeLeft<=gapLeft || planeRight>=gapRight;
+    const gapLeft=e.x-gapHalf,gapRight=e.x+gapHalf;
+    const planeLeft=plane.x-planeHalfW,planeRight=plane.x+planeHalfW;
+    return planeLeft<=gapLeft||planeRight>=gapRight;
   }
 
   function update(dt){
@@ -176,11 +184,14 @@
     particles.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=Math.pow(.45,dt);p.vy*=Math.pow(.45,dt);p.life-=dt;});
     particles=particles.filter(p=>p.life>0);
     shake*=Math.pow(.025,dt);
-    if(!started||gameOver)return;
+
+    if(!started||gameOver){
+      if(startCharging) startCharge=clamp(startCharge+dt/START_HOLD,0,1);
+      return;
+    }
     t+=dt;
 
-    // Held -> bank right; released -> bank left.
-    // Keep this feel: quick bank response plus a small amount of lateral smoothing.
+    // Held -> bank right; released -> bank left. Keep the responsive steering feel.
     const target=hold?1:-1;
     const oldBank=plane.bank;
     plane.bank+=(target-plane.bank)*(1-Math.exp(-11*dt));
@@ -192,10 +203,16 @@
     plane.vx=clamp(plane.vx,-215,215);
     plane.x+=plane.vx*dt;
 
-    const rollDrag=clamp(Math.abs(plane.bankRate)/12,0,1);
-    const drag=clamp(Math.abs(plane.bank)*.57+rollDrag*.18,0,1);
-    const targetSpeed=lerp(345,165,drag);
-    speed+=(targetSpeed-speed)*Math.min(1,dt*1.7);
+    // Speed is now a strong, readable consequence of flying style. Clean, near-level
+    // flight winds the plane up toward maximum speed. Committing to a bank sheds speed
+    // quickly; frantic reversals also cost a little, so there is a real smooth-rhythm
+    // sweet spot rather than a button-mashing exploit.
+    const rollPenalty=clamp(Math.abs(plane.bankRate)/15,0,1);
+    const turnLoad=clamp(Math.abs(plane.bank)*.80+Math.abs(plane.vx)/215*.10+rollPenalty*.12,0,1);
+    const cleanFlight=1-turnLoad;
+    const targetSpeed=lerp(MIN_SPEED,MAX_SPEED,Math.pow(cleanFlight,1.35));
+    const response=targetSpeed<speed?4.2:1.35;
+    speed+=(targetSpeed-speed)*(1-Math.exp(-response*dt));
     distance+=speed*dt;score+=speed*dt*.045;
 
     fuel-=dt*(1.52+speed/275);
@@ -235,8 +252,6 @@
         const e=enemies[ei];
         if(e.kind==='fuel')continue;
         if(e.kind==='bridge'){
-          // Shots only damage the highlighted centre span; destroying it creates
-          // the exact same opening used by drawing and collision.
           const gap=e.gap??BRIDGE_GAP;
           if(!e.dead&&Math.abs(b.y-e.y)<9&&Math.abs(b.x-e.x)<gap/2){
             bullets.splice(bi,1);used=true;e.hp--;
@@ -293,11 +308,13 @@
       ctx.stroke();
     }
 
-    ctx.strokeStyle='rgba(150,205,235,.24)';ctx.lineWidth=1;
-    for(let i=0;i<16;i++){
-      const y=((i*97+t*speed*.7)%(H+100))-50;
+    const speedNorm=clamp((speed-MIN_SPEED)/(MAX_SPEED-MIN_SPEED),0,1);
+    ctx.strokeStyle='rgba(150,205,235,.28)';ctx.lineWidth=1;
+    const streaks=12+Math.floor(speedNorm*16);
+    for(let i=0;i<streaks;i++){
+      const y=((i*71+t*speed*.9)%(H+120))-60;
       const r=riverAt(y),x=r.left+r.width*((i*37)%100)/100;
-      ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x,y+18+speed*.035);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x,y+14+speed*.10);ctx.stroke();
     }
   }
 
@@ -309,7 +326,6 @@
     if(e.kind==='bridge'){
       const g=bridgeSlabs(e);
       if(e.dead){
-        // What you see is what you can hit: only these two slabs remain collidable.
         ctx.fillStyle='#6f5739';
         ctx.fillRect(e.x-e.w/2,e.y-e.h/2,g.slabW,e.h);
         ctx.fillRect(e.x+g.gap/2,e.y-e.h/2,g.slabW,e.h);
@@ -336,9 +352,20 @@
     ctx.save();ctx.translate(plane.x,plane.y);
     ctx.scale(1-Math.abs(plane.bank)*.42,1);
     ctx.fillStyle='#edf4e9';ctx.beginPath();
-    ctx.moveTo(0,-18);ctx.lineTo(5,-4);ctx.lineTo(18,4);ctx.lineTo(5,7);ctx.lineTo(4,17);ctx.lineTo(-4,17);ctx.lineTo(-5,7);ctx.lineTo(-18,4);ctx.lineTo(-5,-4);ctx.closePath();ctx.fill();
+    ctx.moveTo(0,-18);ctx.lineTo(5,-4);ctx.lineTo(18,4);ctx.lineTo(5,7);ctx.lineTo(4,17);ctx.lineTo(-4,17);ctx.lineTo(-5,7);ctx.lineTo(-18,4);ctx.closePath();ctx.fill();
     ctx.fillStyle='#59c6dd';ctx.fillRect(-3,-9,6,9);
-    ctx.fillStyle='#f7a34b';ctx.fillRect(-2,17,4,7);ctx.restore();
+    const speedNorm=clamp((speed-MIN_SPEED)/(MAX_SPEED-MIN_SPEED),0,1);
+    ctx.fillStyle='#f7a34b';ctx.fillRect(-2,17,4,5+speedNorm*12);
+    ctx.restore();
+  }
+
+  function drawStartBar(y){
+    const bw=Math.min(210,W*.46),bh=10,x=W/2-bw/2;
+    ctx.strokeStyle='#fff';ctx.lineWidth=1;ctx.strokeRect(x,y,bw,bh);
+    ctx.fillStyle=startCharge>=1?'#f4d447':'#b9d9ef';
+    ctx.fillRect(x+2,y+2,(bw-4)*startCharge,bh-4);
+    ctx.fillStyle='#fff';ctx.font='13px monospace';ctx.textAlign='center';
+    ctx.fillText(startCharge>=1?'RELEASE':'HOLD TO ARM',W/2,y+29);
   }
 
   function draw(){
@@ -353,20 +380,27 @@
     ctx.textAlign='left';ctx.fillStyle='#fff';ctx.font='15px monospace';
     ctx.fillText(`SCORE ${String(Math.floor(score)).padStart(5,'0')}`,15,25);
     ctx.fillText(`BEST  ${String(best).padStart(5,'0')}`,15,45);
-    ctx.fillText(`SPD ${String(Math.round(speed)).padStart(3,' ')}`,15,65);
+    const speedNorm=clamp((speed-MIN_SPEED)/(MAX_SPEED-MIN_SPEED),0,1);
+    ctx.fillText('SPD',15,65);
+    ctx.strokeStyle='#fff';ctx.strokeRect(49,56,94,9);
+    ctx.fillStyle='#59c6dd';ctx.fillRect(51,58,90*speedNorm,5);
+    ctx.fillStyle='#fff';ctx.fillText(String(Math.round(speed)),151,65);
+
     const fw=Math.min(140,W*.28),fx=W-fw-15;
     ctx.fillText('FUEL',fx,25);ctx.strokeStyle='#fff';ctx.strokeRect(fx,34,fw,10);
     ctx.fillStyle=fuel<25?'#ff665e':'#f0d64d';ctx.fillRect(fx+2,36,(fw-4)*fuel/100,6);
 
     if(!started&&!gameOver){
-      ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='bold 27px monospace';ctx.fillText('TINY RAID',W/2,H*.36);
-      ctx.font='15px monospace';ctx.fillText('HOLD = BANK RIGHT',W/2,H*.36+38);ctx.fillText('RELEASE = BANK LEFT',W/2,H*.36+61);
-      ctx.fillStyle='#b9d9ef';ctx.fillText('smooth flying is fast',W/2,H*.36+92);ctx.fillText('space / touch to start',W/2,H*.36+120);
+      ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='bold 27px monospace';ctx.fillText('TINY RAID',W/2,H*.34);
+      ctx.font='15px monospace';ctx.fillText('HOLD = BANK RIGHT  •  RELEASE = BANK LEFT',W/2,H*.34+37);
+      ctx.fillStyle='#b9d9ef';ctx.fillText('clean flying builds speed • hard turns scrub it',W/2,H*.34+63);
+      drawStartBar(H*.34+91);
     }
     if(gameOver){
       ctx.fillStyle='rgba(0,0,0,.48)';ctx.fillRect(0,0,W,H);
-      ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='bold 28px monospace';ctx.fillText('RAID OVER',W/2,H*.44);
-      ctx.font='15px monospace';ctx.fillText(`score ${Math.floor(score)} · best ${best}`,W/2,H*.44+34);ctx.fillText('press / touch to restart',W/2,H*.44+62);
+      ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='bold 28px monospace';ctx.fillText('RAID OVER',W/2,H*.40);
+      ctx.font='15px monospace';ctx.fillText(`score ${Math.floor(score)} · best ${best}`,W/2,H*.40+34);
+      drawStartBar(H*.40+58);
     }
     ctx.restore();
   }
