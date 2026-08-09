@@ -412,12 +412,6 @@
     ctx.textAlign='left';ctx.fillStyle='#fff';ctx.font='15px monospace';
     ctx.fillText(`SCORE ${String(Math.floor(score)).padStart(5,'0')}`,15,25);
     ctx.fillText(`BEST  ${String(best).padStart(5,'0')}`,15,45);
-    const speedNorm=clamp((speed-MIN_SPEED)/(MAX_SPEED-MIN_SPEED),0,1);
-    ctx.fillText('SPD',15,65);
-    ctx.strokeStyle='#fff';ctx.strokeRect(49,56,94,9);
-    ctx.fillStyle='#59c6dd';ctx.fillRect(51,58,90*speedNorm,5);
-    ctx.fillStyle='#fff';ctx.fillText(String(Math.round(speed)),151,65);
-
     const fw=Math.min(140,W*.28),fx=W-fw-15;
     ctx.fillText('FUEL',fx,25);ctx.strokeStyle='#fff';ctx.strokeRect(fx,34,fw,10);
     const low=fuel<25;
