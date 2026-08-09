@@ -397,7 +397,7 @@
     ctx.fillStyle=startCharge>=1?'#f4d447':'#b9d9ef';
     ctx.fillRect(x+2,y+2,(bw-4)*startCharge,bh-4);
     ctx.fillStyle='#fff';ctx.font='13px monospace';ctx.textAlign='center';
-    ctx.fillText(startCharge>=1?'RELEASE':'HOLD TO ARM',W/2,y+29);
+    ctx.fillText(startCharge>=1?'RELEASE':'HOLD TO START',W/2,y+29);
   }
 
   function draw(){
@@ -427,8 +427,7 @@
     if(!started&&!gameOver){
       ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='bold 27px monospace';ctx.fillText('TINY RAID',W/2,H*.34);
       ctx.font='15px monospace';ctx.fillText('HOLD = BANK RIGHT  •  RELEASE = BANK LEFT',W/2,H*.34+37);
-      ctx.fillStyle='#b9d9ef';ctx.fillText('clean flying builds speed • hard turns scrub it',W/2,H*.34+63);
-      drawStartBar(H*.34+91);
+      drawStartBar(H*.34+64);
     }
     if(gameOver){
       ctx.fillStyle='rgba(0,0,0,.48)';ctx.fillRect(0,0,W,H);
