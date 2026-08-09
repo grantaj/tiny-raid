@@ -32,8 +32,8 @@
   const BRIDGE_GAP=82;
   const BRIDGE_HP=3;
   const START_HOLD=.75;
-  const MIN_SPEED=85;
-  const MAX_SPEED=455;
+  const MIN_SPEED=125;
+  const MAX_SPEED=420;
   const FUEL_RATE=78;
 
   function resize(){
@@ -218,14 +218,11 @@
     plane.vx=clamp(plane.vx,-215,215);
     plane.x+=plane.vx*dt;
 
-    // Speed control is intentionally strong: committing to either bank is the brake.
-    // Keeping the wings near level with a balanced press/release rhythm is the throttle.
-    // Roll-rate drag is deliberately small so the good rhythm is not punished.
     const rollPenalty=clamp(Math.abs(plane.bankRate)/15,0,1);
-    const turnLoad=clamp(Math.abs(plane.bank)*1.08+Math.abs(plane.vx)/215*.16+rollPenalty*.08,0,1);
+    const turnLoad=clamp(Math.abs(plane.bank)*.80+Math.abs(plane.vx)/215*.10+rollPenalty*.12,0,1);
     const cleanFlight=1-turnLoad;
-    const targetSpeed=lerp(MIN_SPEED,MAX_SPEED,Math.pow(cleanFlight,1.08));
-    const response=targetSpeed<speed?9.0:2.6;
+    const targetSpeed=lerp(MIN_SPEED,MAX_SPEED,Math.pow(cleanFlight,1.35));
+    const response=targetSpeed<speed?4.2:1.35;
     speed+=(targetSpeed-speed)*(1-Math.exp(-response*dt));
     distance+=speed*dt;score+=speed*dt*.045;
 
