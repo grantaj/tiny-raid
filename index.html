@@ -58,11 +58,19 @@
 
   function rebuildRiver(){
     const {minWidth,maxWidth}=riverLimits();
+    const safeWidth=clamp(W*.62,minWidth,maxWidth);
     sections=[];
     let center=W*.5,width=clamp(W*.50,minWidth,maxWidth);
     for(let y=-STEP*3;y<H+STEP*3;y+=STEP){
-      center=clamp(center+rand(-29,29),width*.52,W-width*.52);
-      width=clamp(width+rand(-20,20),minWidth,maxWidth);
+      const randomCenter=clamp(center+rand(-29,29),width*.52,W-width*.52);
+      const randomWidth=clamp(width+rand(-20,20),minWidth,maxWidth);
+
+      // The opening stretch is deliberately safe. This matters most on phones,
+      // where the same plane consumes a much larger fraction of the river width.
+      // Blend back into normal procedural wandering a few sections above the plane.
+      const safe=clamp(1-Math.abs(y-plane.y)/(STEP*4.2),0,1);
+      center=lerp(randomCenter,W*.5,safe*.94);
+      width=lerp(randomWidth,safeWidth,safe);
       sections.push({y,center,width});
     }
     if(plane.x===0) plane.x=W*.5;
@@ -228,7 +236,6 @@
     nextShot-=dt;
     if(nextShot<=0){bullets.push({x:plane.x,y:plane.y-plane.h*.55,vy:520});nextShot=.14;}
 
-    // Rare high-value jet: a separate cross-screen event, independent of river scroll.
     nextJet-=dt;
     if(nextJet<=0){
       enemies.push({kind:'jet',x:W+48,y:rand(H*.18,H*.58),w:40,h:14,vx:-rand(285,360)});
@@ -256,7 +263,11 @@
         if(e.kind==='fuel')continue;
         if(e.kind==='bridge'){
           const gap=e.gap??BRIDGE_GAP;
-          if(!e.dead&&Math.abs(b.y-e.y)<9&&Math.abs(b.x-e.x)<gap/2){
+          // A bridge cannot take damage until the whole road strip is on screen.
+          // This prevents the automatic gun from destroying it before the player
+          // has had a chance to see and react to it.
+          const visible=e.y-e.h/2>=0 && e.y+e.h/2<=H;
+          if(visible&&!e.dead&&Math.abs(b.y-e.y)<9&&Math.abs(b.x-e.x)<gap/2){
             bullets.splice(bi,1);used=true;e.hp--;
             if(e.hp<=0){e.dead=true;score+=140;explode(e.x,e.y,24);}
             break;
