@@ -15,18 +15,18 @@
 (() => {
   const canvas=document.getElementById('game');
   const ctx=canvas.getContext('2d');
-  let W=0,H=0,DPR=1;
+  let W=0,H=0;
   const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
   const lerp=(a,b,t)=>a+(b-a)*t;
   const rand=(a,b)=>a+Math.random()*(b-a);
 
-  let hold=false,started=false,gameOver=false;
-  let startCharging=false,startCharge=0;
-  let score=0,best=+(localStorage.tinyRaidBest||0),fuel=100;
-  let speed=235,t=0,distance=0,shake=0;
-  let sections=[],enemies=[],bullets=[],enemyBullets=[],particles=[];
-  let nextShot=0,sectionCount=0,nextJet=0,fuelSections=0;
-  const plane={x:0,y:0,vx:0,bank:0,bankRate:0,w:28,h:34};
+  let hold,started,gameOver,startCharge;
+  let score,fuel,speed,t,distance,shake;
+  let enemies,bullets,enemyBullets,particles;
+  let nextShot,sectionCount,nextJet,fuelSections;
+  let sections=[];
+  let best=+(localStorage.tinyRaidBest||0);
+  const plane={w:28,h:34};
   const STEP=78;
   const BRIDGE_GAP=82;
   const BRIDGE_HP=3;
@@ -36,10 +36,10 @@
   const FUEL_REFILL=40;
 
   function resize(){
-    DPR=Math.min(2,devicePixelRatio||1);
+    const dpr=Math.min(2,devicePixelRatio||1);
     W=innerWidth;H=innerHeight;
-    canvas.width=W*DPR;canvas.height=H*DPR;
-    ctx.setTransform(DPR,0,0,DPR,0,0);
+    canvas.width=W*dpr;canvas.height=H*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
     if(sections.length) rebuildRiver();
   }
   addEventListener('resize',resize);
@@ -49,10 +49,10 @@
   }
 
   function reset(){
-    hold=false;started=false;gameOver=false;startCharging=false;startCharge=0;
+    hold=false;started=false;gameOver=false;startCharge=0;
     score=0;fuel=100;speed=235;t=0;distance=0;shake=0;
     enemies=[];bullets=[];enemyBullets=[];particles=[];
-    nextShot=.1;sectionCount=0;nextJet=rand(4.5,8.0);
+    nextShot=.1;sectionCount=0;nextJet=rand(4.5,8);
     fuelSections=Math.floor(rand(27,35));
     plane.x=W*.5;plane.y=H*.76;plane.vx=0;plane.bank=0;plane.bankRate=0;
     rebuildRiver();
@@ -71,7 +71,6 @@
       width=lerp(randomWidth,safeWidth,safe);
       sections.push({y,center,width});
     }
-    if(plane.x===0) plane.x=W*.5;
   }
 
   function riverAt(y){
@@ -81,11 +80,11 @@
       if(y>=a.y&&y<=b.y){
         const q=(y-a.y)/(b.y-a.y);
         const center=lerp(a.center,b.center,q),width=lerp(a.width,b.width,q);
-        return {left:center-width/2,right:center+width/2,center,width};
+        return {left:center-width/2,right:center+width/2,width};
       }
     }
     const s=y<sections[0].y?sections[0]:sections[sections.length-1];
-    return {left:s.center-s.width/2,right:s.center+s.width/2,center:s.center,width:s.width};
+    return {left:s.center-s.width/2,right:s.center+s.width/2,width:s.width};
   }
 
   function makeSection(){
@@ -135,26 +134,24 @@
 
   function crash(){
     if(gameOver)return;
-    gameOver=true;hold=false;startCharging=false;startCharge=0;
+    gameOver=true;hold=false;startCharge=0;
     explode(plane.x,plane.y,34);
     best=Math.max(best,Math.floor(score));localStorage.tinyRaidBest=best;
   }
 
   function launch(){
     if(gameOver) reset();
-    started=true;gameOver=false;hold=false;startCharging=false;startCharge=0;
+    started=true;
   }
 
   function press(){
-    if(!started||gameOver){
-      startCharging=true;startCharge=0;hold=false;return;
-    }
+    if(!started||gameOver) startCharge=0;
     hold=true;
   }
   function release(){
     if(!started||gameOver){
-      if(startCharging&&startCharge>=1) launch();
-      startCharging=false;startCharge=0;hold=false;return;
+      if(hold&&startCharge>=1) launch();
+      startCharge=0;
     }
     hold=false;
   }
@@ -168,19 +165,15 @@
   canvas.addEventListener('pointerdown',e=>{e.preventDefault();press();});
   addEventListener('pointerup',release);
   addEventListener('pointercancel',release);
-  addEventListener('blur',()=>{
-    if(!started||gameOver){startCharging=false;startCharge=0;}
-    else hold=false;
-  });
+  addEventListener('blur',()=>{hold=false;startCharge=0;});
 
   function hit(ax,ay,aw,ah,bx,by,bw,bh){
     return Math.abs(ax-bx)*2<aw+bw&&Math.abs(ay-by)*2<ah+bh;
   }
 
   function bridgeSlabs(e){
-    const gap=e.gap??BRIDGE_GAP;
-    const slabW=Math.max(0,(e.w-gap)/2);
-    return {gap,slabW,leftX:e.x-gap/2-slabW/2,rightX:e.x+gap/2+slabW/2};
+    const gap=e.gap,slabW=Math.max(0,(e.w-gap)/2);
+    return {gap,slabW};
   }
 
   function bridgeHitsPlane(e){
@@ -189,7 +182,7 @@
     const overlapsY=Math.abs(plane.y-e.y)<planeHalfH+e.h/2;
     if(!overlapsY)return false;
     if(!e.dead)return true;
-    const gapHalf=(e.gap??BRIDGE_GAP)/2;
+    const gapHalf=e.gap/2;
     const gapLeft=e.x-gapHalf,gapRight=e.x+gapHalf;
     const planeLeft=plane.x-planeHalfW,planeRight=plane.x+planeHalfW;
     return planeLeft<=gapLeft||planeRight>=gapRight;
@@ -202,7 +195,7 @@
     shake*=Math.pow(.025,dt);
 
     if(!started||gameOver){
-      if(startCharging) startCharge=clamp(startCharge+dt/START_HOLD,0,1);
+      if(hold) startCharge=clamp(startCharge+dt/START_HOLD,0,1);
       return;
     }
     t+=dt;
@@ -233,8 +226,8 @@
     const dy=speed*dt;
     sections.forEach(s=>s.y+=dy);
     enemies.forEach(e=>{if(e.kind!=='jet')e.y+=dy;});
-    enemyBullets.forEach(b=>b.y+=dy+b.vy*dt);
-    bullets.forEach(b=>b.y+=dy-b.vy*dt);
+    enemyBullets.forEach(b=>b.y+=dy+88*dt);
+    bullets.forEach(b=>b.y+=dy-520*dt);
 
     while(sections[0].y>-STEP*2)makeSection();
     while(sections.length>2&&sections[sections.length-1].y>H+STEP*3)sections.pop();
@@ -243,7 +236,7 @@
     if(plane.x-half<r.left||plane.x+half>r.right){crash();return;}
 
     nextShot-=dt;
-    if(nextShot<=0){bullets.push({x:plane.x,y:plane.y-plane.h*.55,vy:520});nextShot=.14;}
+    if(nextShot<=0){bullets.push({x:plane.x,y:plane.y-plane.h*.55});nextShot=.14;}
 
     nextJet-=dt;
     if(nextJet<=0){
@@ -256,7 +249,7 @@
         e.cool=(e.cool??rand(.6,1.6))-dt;
         if(e.y>-60&&e.y<plane.y-100&&e.cool<=0){
           const dx=plane.x-e.x,dy2=plane.y-e.y,len=Math.hypot(dx,dy2)||1;
-          enemyBullets.push({x:e.x,y:e.y,vx:dx/len*52,vy:88});
+          enemyBullets.push({x:e.x,y:e.y,vx:dx/len*52});
           e.cool=rand(1.25,2.05);
         }
       }
@@ -266,24 +259,23 @@
     enemyBullets.forEach(b=>b.x+=b.vx*dt);
 
     for(let bi=bullets.length-1;bi>=0;bi--){
-      const b=bullets[bi];let used=false;
+      const b=bullets[bi];
       for(let ei=enemies.length-1;ei>=0;ei--){
         const e=enemies[ei];
         if(e.kind==='fuel')continue;
         if(e.kind==='bridge'){
-          const gap=e.gap??BRIDGE_GAP;
+          const gap=e.gap;
           const visible=e.y-e.h/2>=0 && e.y+e.h/2<=H;
           if(visible&&!e.dead&&Math.abs(b.y-e.y)<9&&Math.abs(b.x-e.x)<gap/2){
-            bullets.splice(bi,1);used=true;e.hp--;
+            bullets.splice(bi,1);e.hp--;
             if(e.hp<=0){e.dead=true;score+=140;explode(e.x,e.y,24);}
             break;
           }
         }else if(hit(b.x,b.y,4,9,e.x,e.y,e.w,e.h)){
-          bullets.splice(bi,1);used=true;explode(e.x,e.y,e.kind==='jet'?24:14);
+          bullets.splice(bi,1);explode(e.x,e.y,e.kind==='jet'?24:14);
           score+=e.kind==='jet'?220:(e.kind==='gun'?55:45);enemies.splice(ei,1);break;
         }
       }
-      if(used)continue;
     }
 
     for(let i=enemies.length-1;i>=0;i--){
@@ -346,7 +338,7 @@
       ctx.fillStyle='#f4d447';ctx.fillRect(e.x-e.w/2,e.y-e.h/2,e.w,e.h);
       ctx.fillStyle='#332d09';
       for(let y=e.y-e.h/2+8;y<e.y+e.h/2-5;y+=12)ctx.fillRect(e.x-e.w/2+5,y,e.w-10,3);
-      ctx.fillStyle='#332d09';ctx.font='bold 10px monospace';ctx.textAlign='center';ctx.fillText('FUEL',e.x,e.y+3);return;
+      ctx.font='bold 10px monospace';ctx.textAlign='center';ctx.fillText('FUEL',e.x,e.y+3);return;
     }
     if(e.kind==='bridge'){
       const g=bridgeSlabs(e);
